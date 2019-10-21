@@ -1,0 +1,308 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project basedir="." default="help" name="sino-ets">
+  <taskdef resource="net/sf/antcontrib/antcontrib.properties" />
+  <property environment="env" />
+  <property name="maven.home" value="${env.MAVEN_HOME}" />
+  <property name="developmentVersion" value="0.0.1-SNAPSHOT" />
+
+  <!-- - - - - - - - - - - - - - - - - -
+    property: 打包参数
+    - - - - - - - - - - - - - - - - - -->
+  <property name="sino.ets.version" value="0.0.1-SNAPSHOT" />
+
+  <property name="releaseVersion" value="0.0.1-SNAPSHOT" />
+  <property name="releaseSvnRevision" value="'HEAD'" />
+
+  <!-- 是否重新创建SVN分支 -->
+  <property name="recreateSvnTag" value="1" />
+
+  <property name="svnPrjName" value="sino-ets" />
+  <property name="svnPrjName-release" value="${svnPrjName}-${releaseVersion}" />
+
+  <!-- - - - - - - - - - - - - - - - - -
+    property: svn信息
+    - - - - - - - - - - - - - - - - - -->
+  <property name="svnTrunkPath" value="svn://121.28.95.246/SinoRepository/sino-ets-product/ConfigurationItems/04_ConstructCheck/trunk/sino-ets" />
+  <property name="svnTagPath" value="svn://121.28.95.246/SinoRepository/sino-ets-product/ConfigurationItems/04_ConstructCheck/tag/sino-ets" />
+  <property name="svnCommitPath" value="svn://121.28.95.246/SinoRepository/sino-ets-product/ConfigurationItems/04_ConstructCheck/commit/sino-ets" />
+
+  <!-- =================================
+    target: project.release
+    ================================= -->
+  <target name="project.release">
+    <!-- 清理target目录 -->
+    <antcall target="mvn.clean" />
+
+    <!-- 打包前提交svn -->
+    <antcall target="svn:commit" />
+
+    <!-- release dbm -->
+    <antcall target="project.release:dbm" />
+
+    <!-- 创建svn tag -->
+    <antcall target="svn:createTag" />
+
+    <!-- 切换工作副本至svn tag -->
+    <antcall target="svn:switchToTag" />
+
+    <!-- 打包 -->
+    <antcall target="project.release:release" />
+    <antcall target="cmd.delete:pom.xml.versionsBackup" />
+
+    <!-- 切换svn工作副本至trunk -->
+    <antcall target="svn:switchToTrunk" />
+
+    <!-- 发布 -->
+    <antcall target="project.commit" />
+  </target>
+
+  <target name="cmd.delete:pom.xml.versionsBackup">
+    <delete>
+      <fileset dir="." includes="**/pom.xml.versionsBackup" />
+    </delete>
+  </target>
+
+  <target name="svn:commit">
+    <exec executable="svn">
+      <arg line="commit -m &quot;release: ${svnPrjName-release}, from revision: ${releaseSvnRevision}&quot;" />
+    </exec>
+  </target>
+
+  <target name="svn:createTag">
+    <if>
+      <equals arg1="${recreateSvnTag}" arg2="1" />
+      <then>
+        <echo>创建svn分支: ${svnPrjName-release}</echo>
+        <antcall target="svn:copy">
+          <param name="paramSvnFrom" value="${svnTrunkPath}" />
+          <param name="paramSvnToPath" value="${svnTagPath}" />
+          <param name="paramSvnPrjName" value="${svnPrjName-release}" />
+          <param name="paramSvnPrjRevision" value="${releaseSvnRevision}" />
+        </antcall>
+      </then>
+    </if>
+    <if>
+      <not>
+        <equals arg1="${releaseSvnRevision}" arg2="'HEAD'" />
+      </not>
+      <then>
+        <property name="buildXmlFrom" value="${svnTrunkPath}/build.xml" />
+        <property name="buildXmlTo" value="${svnTagPath}/${svnPrjName-release}/build.xml" />
+        <exec executable="svn">
+          <arg line="delete ${buildXmlTo}" />
+          <arg line="-m &quot;delete: build.xml&quot;" />
+        </exec>
+        <exec executable="svn">
+          <arg line="copy ${buildXmlFrom}" />
+          <arg line="${buildXmlTo}" />
+          <arg line="-m &quot;release: build.xml&quot;" />
+        </exec>
+      </then>
+    </if>
+  </target>
+
+  <target name="svn:switchToTag">
+    <property name="paramSvnToPath" value="${svnTagPath}/${svnPrjName-release}" />
+    <echo>切换工作副本至svn: ${paramSvnToPath}</echo>
+    <exec executable="svn">
+      <arg line="switch ${paramSvnToPath}" />
+    </exec>
+  </target>
+
+  <target name="svn:switchToTrunk">
+    <property name="paramSvnToPath" value="${svnTrunkPath}" />
+    <echo>切换工作副本至svn: ${paramSvnToPath}</echo>
+    <exec executable="svn">
+      <arg line="switch ${paramSvnToPath}" />
+    </exec>
+  </target>
+
+  <target name="svn:copy">
+    <property name="paramSvnFrom" value="" />
+    <property name="paramSvnToPath" value="" />
+    <property name="paramSvnPrjName" value="" />
+    <property name="paramSvnPrjRevision" value="" />
+
+    <exec executable="svn" resultproperty="svnExist" outputproperty="svnOutput">
+      <arg line="info" />
+      <arg line="${paramSvnToPath}/${paramSvnPrjName}" />
+      <arg line="-r 'HEAD'" />
+    </exec>
+
+    <if>
+      <matches string="${svnOutput}" pattern="Revision" />
+      <then>
+        <echo>删除svn中已存在分支: ${paramSvnPrjName}</echo>
+        <exec executable="svn">
+          <arg line="delete ${paramSvnToPath}/${paramSvnPrjName}" />
+          <arg line="-m &quot;delete: ${paramSvnPrjName}&quot;" />
+        </exec>
+        <echo>重新创建svn分支: ${paramSvnPrjName}</echo>
+        <exec executable="svn">
+          <arg line="copy -r ${paramSvnPrjRevision} ${paramSvnFrom}" />
+          <arg line="${paramSvnToPath}/${paramSvnPrjName}" />
+          <arg line="-m &quot;release: ${paramSvnPrjName}&quot;" />
+        </exec>
+      </then>
+      <else>
+        <echo>创建未存在的svn分支: ${paramSvnPrjName}</echo>
+        <exec executable="svn">
+          <arg line="copy ${paramSvnFrom}" />
+          <arg line="${paramSvnToPath}/${paramSvnPrjName}" />
+          <arg line="-m &quot;release: ${paramSvnPrjName}&quot;" />
+        </exec>
+      </else>
+    </if>
+  </target>
+
+  <target name="project.release:release">
+    <echo>发布${svnPrjName}: ${svnPrjName-release}</echo>
+    <antcall target="project.release:sino.ets.version">
+      <param name="paramCurVersion" value="${sino.ets.version}" />
+    </antcall>
+
+    <antcall target="mvn.versions:set" />
+    <!-- <antcall target="mvn.versions:update-child-modules" /> -->
+
+    <exec executable="svn">
+      <arg line="commit -m &quot;release: ${svnPrjName-release}&quot;" />
+    </exec>
+
+    <antcall target="mvn.deploy" />
+    <!-- <antcall target="mvn.package" /> -->
+  </target>
+
+  <target name="project.release:sino.ets.version">
+    <property name="paramCurVersion" value="${developmentVersion}" />
+    <echo>设置pom.xml中sino-framework版本为: ${paramCurVersion}</echo>
+    <replaceregexp byline="false">
+      <regexp pattern="&lt;sino.ets.version&gt;\S*&lt;\/sino.ets.version&gt;" />
+      <substitution expression="&lt;sino.ets.version&gt;${paramCurVersion}&lt;/sino.ets.version&gt;" />
+      <fileset file="${basedir}/pom.xml" />
+    </replaceregexp>
+  </target>
+
+  <target name="project.release:dbm">
+    <echo>release dbm: ${releaseVersion}</echo>
+
+    <property name="dbmSvnSnapshotPath" value="${svnTrunkPath}/${svnPrjName}-dbm/src/main/resources/snapshot" />
+    <property name="dbmSvnReleasePath" value="${svnTrunkPath}/${svnPrjName}-dbm/src/main/resources/release/${releaseVersion}" />
+
+    <echo>检测svn中目录是否存在: ${dbmSvnReleasePath}</echo>
+    <exec executable="svn" resultproperty="svnExist" outputproperty="svnOutput">
+      <arg line="info" />
+      <arg line="${dbmSvnReleasePath}" />
+      <arg line="-r 'HEAD'" />
+    </exec>
+
+    <if>
+      <matches string="${svnOutput}" pattern="Revision" />
+      <then>
+        <echo>删除svn中已存在目录</echo>
+        <exec executable="svn">
+          <arg line="delete ${dbmSvnReleasePath}" />
+          <arg line="-m &quot;release: ${svnPrjName-release}&quot;" />
+        </exec>
+      </then>
+      <else>
+        <echo>目录不存在，可直接进行下一步操作</echo>
+      </else>
+    </if>
+
+    <exec executable="svn">
+      <arg line="copy" />
+      <arg line="${dbmSvnSnapshotPath}" />
+      <arg line="${dbmSvnReleasePath}" />
+      <arg line="-m &quot;release: ${svnPrjName-release}&quot;" />
+    </exec>
+  </target>
+
+  <target name="project.commit">
+    <exec executable="svn" resultproperty="svnExist" outputproperty="svnOutput">
+      <arg line="info" />
+      <arg line="${svnCommitPath}/${svnPrjName-release}" />
+      <arg line="-r 'HEAD'" />
+    </exec>
+
+    <if>
+      <matches string="${svnOutput}" pattern="Revision" />
+      <then>
+        <echo>删除svn中已存在目录: ${svnCommitPath}/${svnPrjName-release}</echo>
+        <exec executable="svn">
+          <arg line="delete ${svnCommitPath}/${svnPrjName-release}" />
+          <arg line="-m &quot;release: ${svnPrjName-release}&quot;" />
+        </exec>
+      </then>
+      <else>
+        <echo>目录不存在，可直接进行下一步操作</echo>
+      </else>
+    </if>
+
+    <echo>svn.import ${svnPrjName}-webapp-${releaseVersion}.war</echo>
+    <exec executable="svn">
+      <arg line="import ${basedir}/${svnPrjName}-webapp/target/${svnPrjName}-webapp-${releaseVersion}.war" />
+      <arg line="${svnCommitPath}/${svnPrjName-release}/${svnPrjName}-webapp-${releaseVersion}.war" />
+      <arg line="-m &quot;release: ${svnPrjName-release}&quot;" />
+    </exec>
+
+    <exec executable="svn">
+      <arg line="copy" />
+      <arg line="${svnTagPath}/${svnPrjName-release}/${svnPrjName}-dbm/src/main/resources/release" />
+      <arg line="${svnCommitPath}/${svnPrjName-release}/resources" />
+      <arg line="-m &quot;release: ${svnPrjName-release}&quot;" />
+    </exec>
+  </target>
+
+  <target name="mvn.versions:set">
+    <echo message="设置版本号为: ${releaseVersion}" />
+    <exec executable="${maven.home}\bin\mvn.cmd">
+      <arg line="versions:set -DnewVersion=${releaseVersion}" />
+    </exec>
+  </target>
+
+  <target name="mvn.versions:setDevelopmentVersion">
+    <echo message="设置版本号为: ${developmentVersion}" />
+    <exec executable="${maven.home}\bin\mvn.cmd">
+      <arg line="versions:set -DnewVersion=${developmentVersion}" />
+    </exec>
+  </target>
+
+  <target name="mvn.versions:update-child-modules">
+    <echo message="更新子模块版本号" />
+    <exec executable="${maven.home}\bin\mvn.cmd">
+      <arg line="-N versions:update-child-modules" />
+    </exec>
+  </target>
+
+  <target name="mvn.clean">
+    <echo message="mvn.clean" />
+    <exec executable="${maven.home}\bin\mvn.cmd">
+      <arg line="clean" />
+    </exec>
+  </target>
+
+  <target name="mvn.package">
+    <echo message="打包" />
+    <exec executable="${maven.home}\bin\mvn.cmd">
+      <arg line=" -U package -Dmaven.test.skip=true" />
+    </exec>
+  </target>
+
+  <target name="mvn.install">
+    <echo message="将jar包发布到本地库中,将会先执行打包(mvn package)的操作" />
+    <exec executable="${maven.home}\bin\mvn.cmd">
+      <arg line=" install -U" />
+    </exec>
+  </target>
+
+  <target name="mvn.deploy">
+    <echo message="发布jar包到远程的maven服务器中,### 注意:用户和密码配置在setting.xml中" />
+    <exec executable="${maven.home}\bin\mvn.cmd">
+      <arg line=" deploy -e -Dmaven.test.skip=true" />
+    </exec>
+  </target>
+
+  <target name="help">
+    <echo message="帮助" />
+  </target>
+</project>
